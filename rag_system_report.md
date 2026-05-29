@@ -1,13 +1,13 @@
 # TÀI LIỆU KỸ THUẬT: KIẾN TRÚC RAG VÀ HỆ THỐNG ĐÁNH GIÁ OFFLINE
 **Clef Internal AI Chatbot (AI Module)**
 
-Tài liệu này cung cấp mô tả chi tiết về cấu trúc luồng hoạt động RAG hiện tại và phương pháp đánh giá hiệu năng offline tự động cùng các liên kết tham chiếu khoa học chính thống.
+Tài liệu này cung cấp mô tả chi tiết về cấu trúc luồng hoạt động RAG hiện tại và phương pháp đánh giá hiệu năng offline tự động cùng các liên kết tham chiếu.
 
 ---
 
 ## 1. TỔNG QUAN KIẾN TRÚC RAG (PIPELINE ARCHITECTURE)
 
-Hệ thống RAG sử dụng chiến lược **Tìm kiếm lai kết hợp (Advanced Hybrid Search)** kết hợp **Đánh giá lại (Reranking)** và mô hình sinh **LLM cục bộ (Local LLM)** nhằm tối ưu hóa độ chính xác và tốc độ phản hồi.
+Hệ thống RAG sử dụng chiến lược **Tìm kiếm lai kết hợp (Advanced Hybrid Search)** kết hợp **Đánh giá lại (Reranking)** và mô hình sinh **LLM cục bộ (Local LLM)**.
 
 *   **Mô hình nhúng (Embedding Model):** `BAAI/bge-m3` (Sinh song song Dense & Sparse Vector).
 *   **Cơ sở dữ liệu Vector (Vector Store):** `Qdrant` (Collection: `handbook_v2`, kết hợp kết quả bằng thuật toán `RRF`).
@@ -74,7 +74,7 @@ sequenceDiagram
         Note over Retriever: Chuyển sang Thread Pool (asyncio.to_thread)<br/>Mã hóa Query dùng BGE-M3
         Retriever->>Retriever: Sinh ra Dense Vector & Sparse Vector của câu hỏi
         Retriever->>Qdrant: Gửi truy vấn kép (Prefetch dense & Prefetch sparse)
-        Note over Qdrant: Tìm kiếm song song, hợp nhất bằng RRF (Reciprocal Rank Fusion)
+        Note over Qdrant: Tìm kiếm song parallel, hợp nhất bằng RRF (Reciprocal Rank Fusion)
         Qdrant-->>Retriever: Trả về danh sách 20 ứng viên (candidates) kèm scores
         Retriever-->>Pipeline: Trả về danh sách 20 candidates
     end
@@ -90,7 +90,7 @@ sequenceDiagram
     rect rgb(245, 255, 250)
         note over Pipeline, LLM: GIAI ĐOẠN 3: SINH CÂU TRẢ LỜI (GENERATION)
         Pipeline->>Pipeline: build_prompt(query, top_chunks)
-        note over Pipeline: Định dạng Prompt tuân thủ nghiêm ngặt Quy tắc:<br/>1. Chỉ dùng CONTEXT được cấp.<br/>2. Trả lời bằng Tiếng Việt 100%.<br/>3. Trích dẫn nguồn dạng [doc].
+        note over Pipeline: Định dạng Prompt tuân thủ nghiêm ngặt Quy tắc:<br/>1. Chỉ dùng CONTEXT được cấp.<br/>2. Trả lời bằng Tiếng Việt 100%.<br/>3. Trích dẫn nguồn
         Pipeline->>LLM: generate(prompt)
         Note over LLM: Chuyển sang Thread Pool.<br/>Dùng Qwen2.5-1.5B (4-bit HF Pipeline)
         LLM-->>Pipeline: Trả về văn bản câu trả lời (Answer)
@@ -111,15 +111,92 @@ sequenceDiagram
 
 ## 3. HỆ THỐNG ĐÁNH GIÁ HIỆN TẠI (EVALUATION FRAMEWORK)
 
-Bộ chấm điểm offline được triển khai trong script `11_run_evaluation.py`. Bộ chấm điểm này hoạt động hoàn toàn cục bộ (offline), không tốn chi phí gọi API và tuân thủ các nguyên lý khoa học của **RAG Triad** (độ trung thực, độ liên quan, chất lượng ngữ cảnh).
+Bộ chấm điểm offline được triển khai trong script `11_run_evaluation.py`. Bộ chấm điểm này hoạt động hoàn toàn cục bộ (offline), không tốn chi phí gọi API và tự động hóa hoàn toàn.
 
 ### A. Các chỉ số đo lường Retrieval (Pre-Rerank & Post-Rerank)
 Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_dataset.md`) so khớp với danh sách Chunk ID tìm kiếm thực tế:
 
 *   **Hit Rate@K (Tỷ lệ tìm trúng):** Đo lường xem tài liệu chính xác có nằm trong top K kết quả trả về hay không. Điểm số là 1.0 (nếu trúng) hoặc 0.0 (nếu trượt).
-*   **NDCG@K (Normalized Discounted Cumulative Gain):** Đánh giá mức độ chính xác của thứ tự sắp xếp kết quả. Chunk đúng nằm ở vị trí cao hơn (vị trí 1, 2) sẽ đạt điểm số cao hơn so với khi nằm ở vị trí thấp (vị trí 4, 5).
+*   **NDCG@K (Normalized Discounted Cumulative Gain):** Đánh giá mức độ chính xác của thứ tự sắp xếp kết quả. Chunk đúng nằm ở vị trí cao hơn (vị trí 1, 2) sẽ được ghi nhận cao hơn so với vị trí thấp hơn (vị trí 10, 20).
 *   **Context Precision (Độ chính xác của ngữ cảnh):** Tính toán tỷ lệ các chunks liên quan xuất hiện ở thứ hạng cao trên tổng số chunks được lấy ra.
-*   **Context Recall (Độ bao phủ của ngữ cảnh):** Đánh giá xem lượng thông tin cần thiết để trả lời câu hỏi (Ground Truth) có được bao phủ đầy đủ trong các chunks đã truy xuất hay không.
+*   **Context Recall (Độ bao phủ của ngữ cảnh):** Đánh giá xem lượng thông tin cần thiết để trả lời câu hỏi (Ground Truth) có được bao phủ đầy đủ trong các chunks được truy xuất hay không.
+
+#### 📌 Ví dụ thực tế xuyên suốt
+*   **Câu hỏi (Query):** *"Quy trình xin nghỉ phép của công ty như thế nào?"*
+*   **Đáp án chuẩn (Ground Truth - GT):** Gồm 2 ý chính:
+    1.  *Ý A:* Tạo đề xuất trên hệ thống Base trước ít nhất 1 ngày.
+    2.  *Ý B:* Được Quản lý trực tiếp phê duyệt.
+*   **Kết quả RAG truy xuất được (K = 3 chunks) theo thứ tự:**
+    *   **Vị trí 1 (Chunk 1):** *"Mỗi năm nhân viên có 12 ngày phép năm hưởng lương."* ➔ **Không liên quan (0)**
+    *   **Vị trí 2 (Chunk 2):** *"Để xin nghỉ phép, nhân viên phải tạo yêu cầu nghỉ phép trên phần mềm Base trước 1 ngày."* ➔ **Có liên quan (1)**
+    *   **Vị trí 3 (Chunk 3):** *"Đề xuất nghỉ phép phải được Quản lý trực tiếp duyệt thì mới hợp lệ."* ➔ **Có liên quan (1)**
+
+---
+
+#### 1. Hit Rate@K (Tỷ lệ tìm trúng)
+*   **Giải thích dễ hiểu:** Chỉ quan tâm đến việc **"có trúng phát nào trong top K hay không"**. Không quan tâm trúng ở vị trí nào hay trúng bao nhiêu lần.
+    *   Nếu có ít nhất 1 chunk liên quan: **1.0** (Trúng)
+    *   Nếu không có chunk nào liên quan: **0.0** (Trượt)
+*   **Áp dụng ví dụ với $K=3$:**
+    *   Trong top 3 kết quả trả về `[Chunk 1 (0), Chunk 2 (1), Chunk 3 (1)]`, ta thấy có `Chunk 2` và `Chunk 3` liên quan.
+    *   ➔ **Hit Rate@3 = 1.0** (Hệ thống tìm trúng).
+    *   *Nếu xét $K=1$:* Chỉ xem xét `Chunk 1` (0). Vì nó không liên quan nên **Hit Rate@1 = 0.0**.
+
+---
+
+#### 2. NDCG@K (Normalized Discounted Cumulative Gain)
+*   **Giải thích dễ hiểu:** Đánh giá **thứ tự sắp xếp (ranking)**. Chunk đúng nằm ở vị trí càng cao (vị trí 1, 2) thì điểm càng cao. Nếu đẩy chunk không liên quan lên đầu, điểm sẽ bị giảm (phạt).
+*   **Áp dụng ví dụ với $K=3$:**
+    *   **Điểm thực tế (DCG@3):** Tính điểm dựa trên độ liên quan và chia cho mức phạt vị trí.
+        $$\text{DCG@3} = 0 (\text{vị trí 1}) + \frac{1}{\log_2(2)} (\text{vị trí 2}) + \frac{1}{\log_2(3)} (\text{vị trí 3}) \approx 0 + 1 + 0.63 = 1.63$$
+    *   **Điểm lý tưởng (IDCG@3):** Nếu hệ thống xếp hoàn hảo (đưa các chunk đúng lên đầu: `[Chunk 2 (1), Chunk 3 (1), Chunk 1 (0)]`):
+        $$\text{IDCG@3} = 1 (\text{vị trí 1}) + \frac{1}{\log_2(2)} (\text{vị trí 2}) + \frac{0}{\log_2(3)} = 1 + 1 + 0 = 2.0$$
+    *   **NDCG@3:** Tỷ lệ giữa thực tế thu được và lý tưởng.
+        $$\text{NDCG@3} = \frac{\text{DCG@3}}{\text{IDCG@3}} = \frac{1.63}{2.0} = 0.815$$
+    *   ➔ **Nhận xét:** Do hệ thống xếp `Chunk 1` (không liên quan) lên đầu nên điểm chỉ đạt **0.815**. Nếu xếp đúng đưa `Chunk 2` lên đầu, điểm sẽ là **1.0**.
+
+---
+
+#### 3. Context Precision (Độ chính xác của ngữ cảnh)
+*   **Giải thích dễ hiểu:** Đo lường xem hệ thống có **ưu tiên xếp các chunk liên quan ở thứ hạng cao** hay không. Chỉ số này phạt rất nặng nếu thông tin nhiễu (không liên quan) nằm đè lên trên thông tin đúng.
+*   **Cách tính:** Trung bình cộng các tỷ lệ chính xác (Precision) tại các vị trí chứa chunk đúng.
+*   **Áp dụng ví dụ:**
+    *   Vị trí 1: `Chunk 1` (Sai) ➔ Bỏ qua không tính điểm tại đây.
+    *   Vị trí 2: `Chunk 2` (Đúng) ➔ Tính tỷ lệ đúng trong top 2: có 1 chunk đúng / 2 chunk đầu = **0.50**.
+    *   Vị trí 3: `Chunk 3` (Đúng) ➔ Tính tỷ lệ đúng trong top 3: có 2 chunk đúng / 3 chunk đầu $\approx$ **0.67**.
+    *   ➔ **Context Precision** = $\frac{0.50 + 0.67}{2} \approx 0.585$
+    *   *Nếu hệ thống xếp đúng dạng `[Chunk 2, Chunk 3, Chunk 1]`:*
+        *   Vị trí 1 (Đúng): Tỷ lệ đúng trong top 1 = **1.0**
+        *   Vị trí 2 (Đúng): Tỷ lệ đúng trong top 2 = **1.0**
+        *   ➔ **Context Precision** = $\frac{1.0 + 1.0}{2} = 1.0$.
+
+---
+
+#### 4. Context Recall (Độ bao phủ của ngữ cảnh)
+*   **Giải thích dễ hiểu:** Đánh giá xem **nguồn thông tin truy xuất được có bao phủ đủ các ý quan trọng trong Ground Truth (đáp án chuẩn) để LLM trả lời hay không**.
+*   **Cách tính:** Tỷ lệ số ý trong Ground Truth xuất hiện trong ngữ cảnh đã truy xuất.
+*   **Áp dụng ví dụ:**
+    *   Ground Truth có 2 ý chính: **Ý A** (tạo đề xuất trên Base) và **Ý B** (được Quản lý duyệt).
+    *   Đối chiếu với Context RAG trả về:
+        *   `Chunk 2` chứa thông tin về **Ý A**. (Đã bao phủ)
+        *   `Chunk 3` chứa thông tin về **Ý B**. (Đã bao phủ)
+    *   ➔ **Context Recall = 2 / 2 = 1.0 (100%)**. Đầy đủ thông tin để LLM trả lời chính xác.
+    *   *Nếu hệ thống chỉ truy xuất được `Chunk 1` và `Chunk 2` (thiếu `Chunk 3`):*
+        *   Ngữ cảnh chỉ chứa **Ý A** mà thiếu mất **Ý B**.
+        *   ➔ **Context Recall = 1 / 2 = 0.5 (50%)**. Lúc này LLM sẽ trả lời thiếu ý (không biết là cần Quản lý duyệt).
+
+---
+
+#### 📊 Bảng so sánh nhanh
+
+| Chỉ số | Mục tiêu đo lường | Ví dụ thực tế |
+| :--- | :--- | :--- |
+| **Hit Rate** | Có tìm thấy thông tin liên quan không? | *"Tôi chỉ cần biết có ít nhất 1 chunk đúng nằm trong top K."* |
+| **NDCG** | Thứ tự sắp xếp các chunk đã tốt chưa? | *"Chunk đúng ở vị trí số 1 tốt hơn rất nhiều so với ở vị trí số 3."* |
+| **Context Precision** | Các chunk liên quan có được xếp lên đầu không? | *"Phạt nặng nếu bắt người dùng/LLM đọc các chunk rác ở trên đầu."* |
+| **Context Recall** | Đã lấy đủ các ý cốt lõi để trả lời câu hỏi chưa? | *"Nếu đáp án có 3 ý, RAG phải đem về đủ thông tin của cả 3 ý."* |
+
+---
 
 ### B. Các chỉ số đo lường Generation (Heuristics NLP)
 Sử dụng các công thức xử lý ngôn ngữ tự nhiên (NLP) để chấm điểm câu trả lời sinh ra bởi LLM:
@@ -139,7 +216,8 @@ Sử dụng các công thức xử lý ngôn ngữ tự nhiên (NLP) để chấ
         $$\text{Relevancy} = 0.4 \times \text{Jaccard Overlap} + 0.6 \times \text{Keyword Recall}$$
     *   *Ý nghĩa:* Đo xem câu trả lời của AI có chứa các từ khóa cốt lõi của câu hỏi hay không.
 *   **Answer Completeness (Độ đầy đủ ý):**
-    *   *Thuật toán:* Tách câu trả lời chuẩn (Ground Truth) thành các câu đơn. Kiểm tra xem mỗi câu đơn có xuất hiện trong câu trả lời sinh ra của AI hay không (bằng so khớp chuỗi hoặc trùng lặp từ vựng $\ge 60\%$).
+    *   *Thuật toán:* Tách câu trả lời chuẩn (Ground Truth) thành các câu đơn. Kiểm tra xem mỗi câu đơn có xuất hiện trong câu trả lời sinh ra của AI hay không (bằng cách kiểm tra độ trùng lặp từ vựng Token Overlap ≥ 0.50).
+    *   *Ý nghĩa:* Tính tỷ lệ phần trăm số câu từ đáp án chuẩn đã được AI trả lời đầy đủ.
 
 ---
 
@@ -174,7 +252,7 @@ Dưới đây là các bài báo nghiên cứu khoa học và tài liệu kỹ t
 
 ## 5. HƯỚNG DẪN CHẠY BỘ ĐÁNH GIÁ (RUNNER INSTRUCTIONS)
 
-Để vận hành quy trình đánh giá offline này, bạn thực hiện chạy tuần tự các dòng lệnh sau từ thư mục gốc của dự án (`/home/phuongnha/SourcesCode/TLTN/tltn-internal-chat/AI Module`):
+Để vận hành quy trình đánh giá offline này, bạn thực hiện chạy tuần tự các dòng lệnh sau từ thư mục gốc của dự án:
 
 ```bash
 # Kích hoạt môi trường ảo Python
