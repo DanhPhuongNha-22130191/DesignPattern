@@ -90,7 +90,7 @@ sequenceDiagram
     rect rgb(245, 255, 250)
         note over Pipeline, LLM: GIAI ĐOẠN 3: SINH CÂU TRẢ LỜI (GENERATION)
         Pipeline->>Pipeline: build_prompt(query, top_chunks)
-        note over Pipeline: Định dạng Prompt tuân thủ nghiêm ngặt Quy tắc:<br/>1. Chỉ dùng CONTEXT được cấp.<br/>2. Trả lời bằng Tiếng Việt 100%.<br/>3. Trích dẫn nguồn tài liệu.
+        note over Pipeline: Định dạng Prompt tuân thủ nghiêm ngặt Quy tắc:<br/>1. Chỉ dùng CONTEXT được cấp.<br/>2. Trả lời bằng Tiếng Việt 100%.<br/>3. Trích dẫn nguồn
         Pipeline->>LLM: generate(prompt)
         Note over LLM: Chuyển sang Thread Pool.<br/>Dùng Qwen2.5-1.5B (4-bit HF Pipeline)
         LLM-->>Pipeline: Trả về văn bản câu trả lời (Answer)
@@ -111,15 +111,15 @@ sequenceDiagram
 
 ## 3. HỆ THỐNG ĐÁNH GIÁ HIỆN TẠI (EVALUATION FRAMEWORK)
 
-Bộ chấm điểm offline được triển khai trong script `11_run_evaluation.py`. Bộ chấm điểm này hoạt động hoàn toàn cục bộ (offline), không tốn chi phí gọi API và tối ưu hóa cho mục đích kiểm thử nội bộ.
+Bộ chấm điểm offline được triển khai trong script `11_run_evaluation.py`. Bộ chấm điểm này hoạt động hoàn toàn cục bộ (offline), không tốn chi phí gọi API và tính toán nhanh chóng.
 
 ### A. Các chỉ số đo lường Retrieval (Pre-Rerank & Post-Rerank)
 Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_dataset.md`) so khớp với danh sách Chunk ID tìm kiếm thực tế:
 
 *   **Hit Rate@K (Tỷ lệ tìm trúng):** Đo lường xem tài liệu chính xác có nằm trong top K kết quả trả về hay không. Điểm số là 1.0 (nếu trúng) hoặc 0.0 (nếu trượt).
-*   **NDCG@K (Normalized Discounted Cumulative Gain):** Đánh giá mức độ chính xác của thứ tự sắp xếp kết quả. Chunk đúng nằm ở vị trí cao hơn (vị trí 1, 2) sẽ đạt điểm cao hơn.
+*   **NDCG@K (Normalized Discounted Cumulative Gain):** Đánh giá mức độ chính xác của thứ tự sắp xếp kết quả. Chunk đúng nằm ở vị trí cao hơn (vị trí 1, 2) sẽ được trọng số cao hơn.
 *   **Context Precision (Độ chính xác của ngữ cảnh):** Tính toán tỷ lệ các chunks liên quan xuất hiện ở thứ hạng cao trên tổng số chunks được lấy ra.
-*   **Context Recall (��ộ bao phủ của ngữ cảnh):** Đánh giá xem lượng thông tin cần thiết để trả lời câu hỏi (Ground Truth) có được bao phủ đầy đủ trong các chunks truy xuất.
+*   **Context Recall (Độ bao phủ của ngữ cảnh):** Đánh giá xem lượng thông tin cần thiết để trả lời câu hỏi (Ground Truth) có được bao phủ đầy đủ trong các chunks truy xuất được.
 
 #### 📌 Ví dụ thực tế xuyên suốt
 *   **Câu hỏi (Query):** *"Quy trình xin nghỉ phép của công ty như thế nào?"*
@@ -145,7 +145,7 @@ Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_
 ---
 
 #### 2. NDCG@K (Normalized Discounted Cumulative Gain)
-*   **Giải thích dễ hiểu:** Đánh giá **thứ tự sắp xếp (ranking)**. Chunk đúng nằm ở vị trí càng cao (vị trí 1, 2) thì điểm càng cao. Nếu đẩy chunk không liên quan lên đầu sẽ bị phạt điểm rất nặng.
+*   **Giải thích dễ hiểu:** Đánh giá **thứ tự sắp xếp (ranking)**. Chunk đúng nằm ở vị trí càng cao (vị trí 1, 2) thì điểm càng cao. Nếu đẩy chunk không liên quan lên đầu thì bị phạt.
 *   **Áp dụng ví dụ với $K=3$:**
     *   **Điểm thực tế (DCG@3):** Tính điểm dựa trên độ liên quan và chia cho mức phạt vị trí.
         $$\text{DCG@3} = 0 (\text{vị trí 1}) + \frac{1}{\log_2(2)} (\text{vị trí 2}) + \frac{1}{\log_2(3)} (\text{vị trí 3}) \approx 0 + 1 + 0.63 = 1.63$$
@@ -158,7 +158,7 @@ Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_
 ---
 
 #### 3. Context Precision (Độ chính xác của ngữ cảnh)
-*   **Giải thích dễ hiểu:** Đo lường xem hệ thống có **ưu tiên xếp các chunk liên quan ở thứ hạng cao** hay không. Chỉ số này phạt rất nặng nếu thông tin nhiễu xuất hiện ở đầu danh sách.
+*   **Giải thích dễ hiểu:** Đo lường xem hệ thống có **ưu tiên xếp các chunk liên quan ở thứ hạng cao** hay không. Chỉ số này phạt rất nặng nếu thông tin nhiễu xuất hiện trước.
 *   **Cách tính:** Trung bình cộng các tỷ lệ chính xác (Precision) tại các vị trí chứa chunk đúng.
 *   **Áp dụng ví dụ:**
     *   Vị trí 1: `Chunk 1` (Sai) ➔ Bỏ qua không tính điểm tại đây.
@@ -216,7 +216,7 @@ Sử dụng các công thức xử lý ngôn ngữ tự nhiên (NLP) để chấ
         $$\text{Relevancy} = 0.4 \times \text{Jaccard Overlap} + 0.6 \times \text{Keyword Recall}$$
     *   *Ý nghĩa:* Đo xem câu trả lời của AI có chứa các từ khóa cốt lõi của câu hỏi hay không.
 *   **Answer Completeness (Độ đầy đủ ý):**
-    *   *Thuật toán:* Tách câu trả lời chuẩn (Ground Truth) thành các câu đơn. Kiểm tra xem mỗi câu đơn có xuất hiện trong câu trả lời sinh ra của AI hay không (so khớp tối thiểu 60% token).
+    *   *Thuật toán:* Tách câu trả lời chuẩn (Ground Truth) thành các câu đơn. Kiểm tra xem mỗi câu đơn có xuất hiện trong câu trả lời sinh ra của AI hay không.
     *   *Ý nghĩa:* Tính tỷ lệ phần trăm số câu từ đáp án chuẩn đã được AI trả lời đầy đủ.
 
 #### 🌟 Kịch bản giả lập để minh họa 4 chỉ số Generation
@@ -295,6 +295,50 @@ AI trả lời có 2 câu đơn:
 | **Faithfulness** | **0.50** | 50% - Có 1 câu AI là ảo tưởng không có căn cứ từ tài liệu. |
 | **Answer Relevancy** | **0.21** | 21% - Câu trả lời không tập trung vào câu hỏi, AI nói thêm chuyện KPI không liên quan. |
 | **Answer Completeness** | **1.0** | 100% - AI trả lời đầy đủ tất cả các ý quan trọng từ đáp án chuẩn. |
+
+---
+
+### C. End-to-End Metrics (Chỉ số đánh giá tổng thể toàn diện)
+
+Trong file mã nguồn đánh giá của bạn, End-to-End (E2E) Metrics được sử dụng để đánh giá tổng thể toàn diện chất lượng đầu ra cuối cùng của hệ thống RAG.
+
+Có 2 chỉ số End-to-End được tính toán ở cuối mỗi lượt chạy (dòng 743 - 751):
+
+#### 1. Overall Quality Score (Điểm chất lượng tổng thể)
+**Thuật toán:** Trung bình cộng đơn giản của cả 4 chỉ số Generation đã tính:
+$$\text{Overall Quality} = \frac{\text{Correctness} + \text{Faithfulness} + \text{Relevancy} + \text{Completeness}}{4}$$
+
+**Ý nghĩa:** Trả về một con số duy nhất từ $0.0 \rightarrow 1.0$ đại diện cho sức mạnh tổng hợp của hệ thống RAG (vừa phải trả lời đúng cấu từ, vừa không bịa đặt, vừa đúng trọng tâm và đủ ý).
+
+**Ví dụ:** Áp dụng vào kịch bản trên:
+$$\text{Overall Quality} = \frac{0.636 + 0.50 + 0.21 + 1.0}{4} = \frac{2.346}{4} \approx 0.587$$
+Điểm này cho biết chất lượng tổng hợp của hệ thống RAG ở mức **58.7%**, chưa đạt mục tiêu tối thiểu (thường đặt ở 0.65 - 0.70).
+
+---
+
+#### 2. Task Success (Tác vụ thành công)
+**Thuật toán:** Phân loại nhị phân (Đúng/Sai) dựa trên ngưỡng của điểm Answer Correctness:
+- Nếu $\text{Correctness} \ge 0.65$ ➔ **Task Success = 1.0** (Thành công)
+- Nếu $\text{Correctness} < 0.65$ ➔ **Task Success = 0.0** (Thất bại)
+
+**Ý nghĩa:** Xác định xem câu trả lời của AI có "đạt chuẩn sử dụng thực tế" hay không. Trung bình cộng của cột này trên toàn bộ dataset chính là **Tỷ lệ thành công (Success Rate)** của hệ thống RAG.
+
+**Tại sao chọn ngưỡng $0.65$?** Qua thực nghiệm, khi điểm Correctness đạt từ $0.65$ trở lên, câu văn của AI đã khớp ít nhất $65\%$ về cả cấu trúc ngữ pháp và từ khóa cốt lõi so với đáp án chuẩn, đảm bảo truyền tải thông tin chính xác đến người dùng.
+
+**Ví dụ:** Từ kịch bản trên:
+- Correctness = 0.636 < 0.65
+- ➔ **Task Success = 0.0** (Tác vụ thất bại - câu trả lời chưa đạt chuẩn)
+- Nếu chạy trên 100 câu hỏi và có 75 câu đạt Success, thì **Success Rate = 75%**
+
+---
+
+#### 📊 Tóm tắt bảng so sánh các loại chỉ số
+
+| Loại Chỉ số | Mục tiêu | Mức độ phức tạp | Ứng dụng |
+| :--- | :--- | :--- | :--- |
+| **Retrieval Metrics** | Đánh giá chất lượng tìm kiếm | Thấp (Regex matching) | Kiểm tra xem ngữ cảnh có đủ tốt không |
+| **Generation Metrics** | Đánh giá chất lượng câu trả lời | Cao (NLP algorithms) | Kiểm tra xem AI có trả lời đúng không |
+| **End-to-End Metrics** | Đánh giá tổng thể từ đầu đến cuối | Rất cao (Synthetic aggregation) | Báo cáo tổng hợp chất lượng hệ thống |
 
 ---
 
