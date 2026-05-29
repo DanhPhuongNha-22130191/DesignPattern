@@ -1,7 +1,7 @@
 # TÀI LIỆU KỸ THUẬT: KIẾN TRÚC RAG VÀ HỆ THỐNG ĐÁNH GIÁ OFFLINE
 **Clef Internal AI Chatbot (AI Module)**
 
-Tài liệu này cung cấp mô tả chi tiết về cấu trúc luồng hoạt động RAG hiện tại và phương pháp đánh giá hiệu năng offline tự động cùng các liên kết tham chiếu.
+Tài liệu này cung cấp mô tả chi tiết về cấu trúc luồng hoạt động RAG hiện tại và phương pháp đánh giá hiệu năng offline tự động cùng các liên kết tham khảo.
 
 ---
 
@@ -90,7 +90,7 @@ sequenceDiagram
     rect rgb(245, 255, 250)
         note over Pipeline, LLM: GIAI ĐOẠN 3: SINH CÂU TRẢ LỜI (GENERATION)
         Pipeline->>Pipeline: build_prompt(query, top_chunks)
-        note over Pipeline: Định dạng Prompt tuân thủ nghiêm ngặt Quy tắc:<br/>1. Chỉ dùng CONTEXT được cấp.<br/>2. Trả lời bằng Tiếng Việt 100%.<br/>3. Trích dẫn nguồn
+        note over Pipeline: Định dạng Prompt tuân thủ nghiêm ngặt Quy tắc:<br/>1. Chỉ dùng CONTEXT được cấp.<br/>2. Trả lời bằng Tiếng Việt 100%.<br/>3. Trích dẫn nguồn tài liệu.
         Pipeline->>LLM: generate(prompt)
         Note over LLM: Chuyển sang Thread Pool.<br/>Dùng Qwen2.5-1.5B (4-bit HF Pipeline)
         LLM-->>Pipeline: Trả về văn bản câu trả lời (Answer)
@@ -111,15 +111,15 @@ sequenceDiagram
 
 ## 3. HỆ THỐNG ĐÁNH GIÁ HIỆN TẠI (EVALUATION FRAMEWORK)
 
-Bộ chấm điểm offline được triển khai trong script `11_run_evaluation.py`. Bộ chấm điểm này hoạt động hoàn toàn cục bộ (offline), không tốn chi phí gọi API và tự động hóa hoàn toàn.
+Bộ chấm điểm offline được triển khai trong script `11_run_evaluation.py`. Bộ chấm điểm này hoạt động hoàn toàn cục bộ (offline), không tốn chi phí gọi API và tối ưu hóa cho mục đích kiểm thử nội bộ.
 
 ### A. Các chỉ số đo lường Retrieval (Pre-Rerank & Post-Rerank)
 Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_dataset.md`) so khớp với danh sách Chunk ID tìm kiếm thực tế:
 
 *   **Hit Rate@K (Tỷ lệ tìm trúng):** Đo lường xem tài liệu chính xác có nằm trong top K kết quả trả về hay không. Điểm số là 1.0 (nếu trúng) hoặc 0.0 (nếu trượt).
-*   **NDCG@K (Normalized Discounted Cumulative Gain):** Đánh giá mức độ chính xác của thứ tự sắp xếp kết quả. Chunk đúng nằm ở vị trí cao hơn (vị trí 1, 2) sẽ được ghi nhận cao hơn so với vị trí thấp hơn (vị trí 10, 20).
+*   **NDCG@K (Normalized Discounted Cumulative Gain):** Đánh giá mức độ chính xác của thứ tự sắp xếp kết quả. Chunk đúng nằm ở vị trí cao hơn (vị trí 1, 2) sẽ đạt điểm cao hơn.
 *   **Context Precision (Độ chính xác của ngữ cảnh):** Tính toán tỷ lệ các chunks liên quan xuất hiện ở thứ hạng cao trên tổng số chunks được lấy ra.
-*   **Context Recall (Độ bao phủ của ngữ cảnh):** Đánh giá xem lượng thông tin cần thiết để trả lời câu hỏi (Ground Truth) có được bao phủ đầy đủ trong các chunks được truy xuất hay không.
+*   **Context Recall (��ộ bao phủ của ngữ cảnh):** Đánh giá xem lượng thông tin cần thiết để trả lời câu hỏi (Ground Truth) có được bao phủ đầy đủ trong các chunks truy xuất.
 
 #### 📌 Ví dụ thực tế xuyên suốt
 *   **Câu hỏi (Query):** *"Quy trình xin nghỉ phép của công ty như thế nào?"*
@@ -145,7 +145,7 @@ Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_
 ---
 
 #### 2. NDCG@K (Normalized Discounted Cumulative Gain)
-*   **Giải thích dễ hiểu:** Đánh giá **thứ tự sắp xếp (ranking)**. Chunk đúng nằm ở vị trí càng cao (vị trí 1, 2) thì điểm càng cao. Nếu đẩy chunk không liên quan lên đầu, điểm sẽ bị giảm (phạt).
+*   **Giải thích dễ hiểu:** Đánh giá **thứ tự sắp xếp (ranking)**. Chunk đúng nằm ở vị trí càng cao (vị trí 1, 2) thì điểm càng cao. Nếu đẩy chunk không liên quan lên đầu sẽ bị phạt điểm rất nặng.
 *   **Áp dụng ví dụ với $K=3$:**
     *   **Điểm thực tế (DCG@3):** Tính điểm dựa trên độ liên quan và chia cho mức phạt vị trí.
         $$\text{DCG@3} = 0 (\text{vị trí 1}) + \frac{1}{\log_2(2)} (\text{vị trí 2}) + \frac{1}{\log_2(3)} (\text{vị trí 3}) \approx 0 + 1 + 0.63 = 1.63$$
@@ -158,7 +158,7 @@ Sử dụng dữ liệu Ground Truth (mã `Chunk ID` đúng lưu trong file `qa_
 ---
 
 #### 3. Context Precision (Độ chính xác của ngữ cảnh)
-*   **Giải thích dễ hiểu:** Đo lường xem hệ thống có **ưu tiên xếp các chunk liên quan ở thứ hạng cao** hay không. Chỉ số này phạt rất nặng nếu thông tin nhiễu (không liên quan) nằm đè lên trên thông tin đúng.
+*   **Giải thích dễ hiểu:** Đo lường xem hệ thống có **ưu tiên xếp các chunk liên quan ở thứ hạng cao** hay không. Chỉ số này phạt rất nặng nếu thông tin nhiễu xuất hiện ở đầu danh sách.
 *   **Cách tính:** Trung bình cộng các tỷ lệ chính xác (Precision) tại các vị trí chứa chunk đúng.
 *   **Áp dụng ví dụ:**
     *   Vị trí 1: `Chunk 1` (Sai) ➔ Bỏ qua không tính điểm tại đây.
@@ -216,8 +216,85 @@ Sử dụng các công thức xử lý ngôn ngữ tự nhiên (NLP) để chấ
         $$\text{Relevancy} = 0.4 \times \text{Jaccard Overlap} + 0.6 \times \text{Keyword Recall}$$
     *   *Ý nghĩa:* Đo xem câu trả lời của AI có chứa các từ khóa cốt lõi của câu hỏi hay không.
 *   **Answer Completeness (Độ đầy đủ ý):**
-    *   *Thuật toán:* Tách câu trả lời chuẩn (Ground Truth) thành các câu đơn. Kiểm tra xem mỗi câu đơn có xuất hiện trong câu trả lời sinh ra của AI hay không (bằng cách kiểm tra độ trùng lặp từ vựng Token Overlap ≥ 0.50).
+    *   *Thuật toán:* Tách câu trả lời chuẩn (Ground Truth) thành các câu đơn. Kiểm tra xem mỗi câu đơn có xuất hiện trong câu trả lời sinh ra của AI hay không (so khớp tối thiểu 60% token).
     *   *Ý nghĩa:* Tính tỷ lệ phần trăm số câu từ đáp án chuẩn đã được AI trả lời đầy đủ.
+
+#### 🌟 Kịch bản giả lập để minh họa 4 chỉ số Generation
+*   **Câu hỏi (Question):** *"Quy trình xin nghỉ phép của Clef là gì?"*
+*   **Tài liệu tham khảo (Contexts) RAG tìm được:**
+    *   *"Nhân viên Clef cần tạo đề xuất nghỉ phép trên hệ thống Base trước ít nhất 1 ngày làm việc."*
+*   **Đáp án chuẩn (Ground Truth - GT):** Gồm 1 câu đơn:
+    *   *"Nhân viên tạo đề xuất nghỉ phép trên hệ thống Base trước 1 ngày."*
+*   **AI tự trả lời (Answer):** Gồm 2 câu đơn:
+    *   *Câu AI_1:* *"Nhân viên tạo yêu cầu nghỉ phép trên Base trước 1 ngày."*
+    *   *Câu AI_2:* *"Ngoài ra, công ty có chế độ thưởng KPI rất tốt."* (AI tự bịa thêm ý này, không có trong tài liệu).
+
+---
+
+#### 1. Answer Correctness (Độ chính xác)
+> **Công thức:** $0.7 \times \text{ROUGE-L F1} + 0.3 \times \text{Jaccard Overlap}$
+
+Đo mức độ giống nhau tổng thể giữa **AI trả lời** và **Đáp án chuẩn**.
+*   **Tính ROUGE-L F1 (Đo chuỗi từ khớp có thứ tự):**
+    *   Chuỗi từ khớp dài nhất giữ nguyên thứ tự là: `["Nhân viên", "tạo", "nghỉ phép", "trên", "Base", "trước", "1", "ngày"]`.
+    *   Tính toán F1-Score cho chuỗi con này $\approx$ **$0.72$** (72%).
+*   **Tính Jaccard Overlap (Đo lượng từ vựng trùng nhau không cần thứ tự):**
+    *   Số từ trùng nhau giữa câu của AI và Đáp án chuẩn là 8 từ.
+    *   Tổng số từ phân biệt của cả hai bên gộp lại là 18 từ.
+    *   ➔ Jaccard = $8 / 18 \approx \mathbf{0.44}$.
+*   ➔ $\text{Correctness} = (0.7 \times 0.72) + (0.3 \times 0.44) = 0.504 + 0.132 = \mathbf{0.636}$ (đạt mức 63.6%).
+
+---
+
+#### 2. Faithfulness (Độ trung thực - AI có bị ảo tưởng không?)
+> **Cách chấm:** Tách câu AI thành các câu đơn độc lập. Đo xem mỗi câu đơn có căn cứ trong tài liệu (Context) không.
+
+AI trả lời có 2 câu đơn:
+*   **Xét Câu AI_1:** *"Nhân viên tạo yêu cầu nghỉ phép trên Base trước 1 ngày."*
+    *   So với Context: Trùng khớp phần lớn từ vựng.
+    *   Tính tỷ lệ từ trùng (Token Overlap) = $8 / 9 = \mathbf{0.88}$.
+    *   Vì $0.88 \ge 0.58$ (đạt ngưỡng) ➔ **Câu AI_1 là có căn cứ.**
+*   **Xét Câu AI_2:** *"Ngoài ra, công ty có chế độ thưởng KPI rất tốt."*
+    *   So với Context: Không có thông tin nào liên quan đến KPI hay thưởng.
+    *   Token Overlap $\approx 0.05$ (dưới 0.58) và TF-IDF Cosine Similarity $\approx 0.0$ (dưới 0.38).
+    *   ➔ **Câu AI_2 là ảo tưởng (Không có căn cứ).**
+*   ➔ $\text{Faithfulness} = \frac{\text{1 câu có căn cứ}}{\text{2 câu AI nói}} = \mathbf{0.50}$ (chỉ đạt 50% độ trung thực).
+
+---
+
+#### 3. Answer Relevancy (Độ liên quan)
+> **Công thức:** $0.4 \times \text{Jaccard Overlap} + 0.6 \times \text{Keyword Recall}$
+
+Đo xem câu trả lời của AI có tập trung vào câu hỏi không hay trả lời lan man.
+*   **Tính Keyword Recall:**
+    *   Từ câu hỏi gốc: *"Quy trình xin nghỉ phép của Clef là gì?"*
+    *   Lọc bỏ từ dừng (là, gì, của) ➔ Ta có 4 từ khóa chính: `{"quy trình", "xin", "nghỉ phép", "clef"}`.
+    *   Trong câu trả lời của AI, chỉ xuất hiện đúng 1 từ khóa là `{"nghỉ phép"}` (AI không nhắc đến "quy trình", "xin", hay "clef").
+    *   ➔ Keyword Recall = $1 / 4 = \mathbf{0.25}$.
+*   **Tính Jaccard Overlap** (tương đồng từ vựng thô giữa Câu hỏi và Câu trả lời) $\approx \mathbf{0.15}$.
+*   ➔ $\text{Relevancy} = (0.4 \times 0.15) + (0.6 \times 0.25) = 0.06 + 0.15 = \mathbf{0.21}$ (điểm cực thấp vì AI trả lời lan man sang chuyện KPI).
+
+---
+
+#### 4. Answer Completeness (Độ đầy đủ ý)
+> **Cách chấm:** Tách Đáp án chuẩn thành các câu đơn. Kiểm tra xem mỗi câu đơn đó có xuất hiện trong câu trả lời của AI hay không.
+
+Đáp án chuẩn chỉ có 1 câu đơn duy nhất: *"Nhân viên tạo đề xuất nghỉ phép trên hệ thống Base trước 1 ngày."*
+*   So sánh câu này với toàn bộ câu trả lời của AI.
+*   Ta thấy câu *AI_1* của AI trùng khớp từ vựng với câu này ở mức **$80\%$** (Token Overlap = 0.80).
+*   Vì $0.80 \ge 0.60$ (đạt ngưỡng) ➔ Ý này **đã được AI trả lời đầy đủ**.
+*   ➔ $\text{Completeness} = \frac{\text{1 ý được trả lời}}{\text{1 ý cần có}} = \mathbf{1.0}$ (100% đầy đủ ý).
+
+---
+
+#### 📋 Tóm tắt kịch bản (Summary Table)
+
+| Chỉ số | Giá trị | Giải thích |
+| :--- | :--- | :--- |
+| **Answer Correctness** | **0.636** | 63.6% - Câu trả lời gần giống nhưng không hoàn hảo so với đáp án chuẩn. |
+| **Faithfulness** | **0.50** | 50% - Có 1 câu AI là ảo tưởng không có căn cứ từ tài liệu. |
+| **Answer Relevancy** | **0.21** | 21% - Câu trả lời không tập trung vào câu hỏi, AI nói thêm chuyện KPI không liên quan. |
+| **Answer Completeness** | **1.0** | 100% - AI trả lời đầy đủ tất cả các ý quan trọng từ đáp án chuẩn. |
 
 ---
 
